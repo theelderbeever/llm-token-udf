@@ -170,8 +170,31 @@ server and its UDF workers to those logical CPU IDs. This sets affinity; reservi
 exclusively still requires host-side cpuset partitioning and placing the container within that
 partition. Docker Desktop CPU IDs refer to its Linux VM, not the macOS host cores.
 
-This Compose service supports direct SQL comparisons. `local/regression.py` still launches isolated
-native ClickHouse servers and does not attach to the Compose service.
+Run the regression against the running Compose service from the host:
+
+```bash
+uv run local/regression.py --compose --profile quick  # first smoke test
+uv run local/regression.py --compose                 # routine regression and benchmarks
+uv run local/regression.py --compose --correctness-only
+```
+
+Compose mode uses the mounted Linux binaries for direct protocol tests and the container's published
+HTTP port for SQL tests and benchmarks. The host needs Docker and `uv`; native Rust and ClickHouse
+are not required. It discovers the service, credentials, port, pool sizes, and image from Docker.
+If you started Compose with `-p`, pass the same name using `--compose-project NAME`. Other options
+are `--compose-file PATH`, `--compose-url http://host:port`, `--seed`, and `--output-dir`.
+
+The runner creates a unique temporary database and removes it afterward. It leaves the service and
+its existing data running. Run against an otherwise idle service. Each UDF retains its configured
+pool size (four by default); profiles vary query concurrency without resizing pools. Both pools
+are warmed and measurements alternate implementation order. There is no cold-start measurement
+when attaching to an existing server. Reports distinguish pool size (`workers`) from `concurrency`.
+
+Compose worker CPU and RSS are read from the container's `/proc` before and after each timed query
+batch. No sampler runs inside the timed interval. The RSS maximum covers those two observations
+and may miss transient peaks; CPU has Linux clock-tick resolution. ClickHouse ProfileEvents and
+raw query logs are retained alongside these measurements. Output files use the same
+`local/results/<timestamp>/` layout as native mode. Omit `--compose` for the native workflow.
 
 One thing worth knowing if you adapt the binaries: data files in the zip are deployed next to the
 binary, but the process does not start in that directory (in Cloud the bundle is under `/scripts`

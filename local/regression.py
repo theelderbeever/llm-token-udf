@@ -3,10 +3,10 @@
 # requires-python = ">=3.11"
 # dependencies = ["psutil==7.2.2"]
 # ///
-"""Differential RowBinary tests and isolated native ClickHouse benchmarks.
+"""Differential RowBinary tests and native or Compose ClickHouse benchmarks.
 
-Run: uv run local/regression.py [--profile quick|routine|stress]
-Only processes started by this runner are stopped; the existing server is unused.
+Run: uv run local/regression.py [--compose] [--profile quick|routine|stress]
+Native mode starts isolated servers; --compose tests the running Compose service.
 """
 
 from __future__ import annotations
@@ -153,10 +153,10 @@ class Worker:
     entire stdin has been written. communicate() cannot model pooled exchanges.
     """
 
-    def __init__(self, binary):
+    def __init__(self, binary, command_prefix=()):
         self.errors = tempfile.TemporaryFile()  # noqa: SIM115 - owned until close()
         self.process = subprocess.Popen(
-            [str(binary)],
+            [*command_prefix, str(binary)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self.errors,
@@ -242,10 +242,10 @@ def build_and_stage(directory, skip_build):
     return binaries
 
 
-def wire_tests(binaries, rows):
+def wire_tests(binaries, rows, command_prefix=(), configuration_tester=None):
     outputs = {}
     for impl, binary in binaries.items():
-        worker = Worker(binary)
+        worker = Worker(binary, command_prefix)
         try:
             # Zero-row chunks have no output acknowledgement. A following
             # nonempty exchange proves alignment, and final EOF proves shutdown.
@@ -266,7 +266,7 @@ def wire_tests(binaries, rows):
             worker.close()
         # Clean EOF before any chunk must also succeed.
         result = subprocess.run(
-            [str(binary)],
+            [*command_prefix, str(binary)],
             input=b"",
             capture_output=True,
             cwd="/",
@@ -283,7 +283,7 @@ def wire_tests(binaries, rows):
             b"2\n\x00\x00",
         ]:
             result = subprocess.run(
-                [str(binary)],
+                [*command_prefix, str(binary)],
                 input=wire,
                 capture_output=True,
                 cwd="/",
@@ -304,7 +304,7 @@ def wire_tests(binaries, rows):
                 b"18446744073709551616\n",
             ]:
                 result = subprocess.run(
-                    [str(binary)],
+                    [*command_prefix, str(binary)],
                     input=wire,
                     capture_output=True,
                     cwd="/",
@@ -315,6 +315,9 @@ def wire_tests(binaries, rows):
                     result.returncode != 0,
                     f"Executor accepted a malformed chunk header: {wire!r}",
                 )
+        if configuration_tester is not None:
+            configuration_tester(binary)
+            continue
         with tempfile.TemporaryDirectory(prefix="udf-config-") as tmp:
             isolated = Path(tmp) / binary.name
             shutil.copy2(binary, isolated)
@@ -612,7 +615,16 @@ EVENTS = {
 }
 
 
-def measure(server, binary, sql, concurrency, expected_rows, calls, metadata):
+def measure(
+    server,
+    binary,
+    sql,
+    concurrency,
+    expected_rows,
+    calls,
+    metadata,
+    sampler_factory=Sampler,
+):
     ids = ["token-regression-" + uuid.uuid4().hex for _ in range(concurrency)]
 
     def query(query_id):
@@ -632,7 +644,7 @@ def measure(server, binary, sql, concurrency, expected_rows, calls, metadata):
         )
         return time.perf_counter() - start, int(result[0]["tokens"])
 
-    with Sampler(server, binary) as sampler:
+    with sampler_factory(server, binary) as sampler:
         start = time.perf_counter()
         with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
             responses = list(pool.map(query, ids))
@@ -755,6 +767,7 @@ def comparisons(records):
                 record["workload"],
                 record["calls_per_row"],
                 record["workers"],
+                record["concurrency"],
                 record["block_size"],
             )
             groups.setdefault(key, {}).setdefault(record["implementation"], []).append(
@@ -785,12 +798,19 @@ def comparisons(records):
         "query_result_rows",
     ]
     result = []
-    for (workload, calls, workers, block), implementations in groups.items():
+    for (
+        workload,
+        calls,
+        workers,
+        concurrency,
+        block,
+    ), implementations in groups.items():
         for metric in metrics:
             row = {
                 "workload": workload,
                 "calls_per_row": calls,
                 "workers": workers,
+                "concurrency": concurrency,
                 "block_size": block,
                 "metric": metric,
             }
@@ -837,6 +857,7 @@ def summary(records):
                 record["workload"],
                 record["calls_per_row"],
                 record["workers"],
+                record["concurrency"],
                 record["block_size"],
             )
             groups.setdefault(key, {}).setdefault(record["implementation"], []).append(
@@ -852,7 +873,11 @@ def summary(records):
                 f"{impl} {medians[impl]:.4f}s [{min(walls):.4f}, {max(walls):.4f}]"
             )
         ratio = medians["executor"] / medians["baseline"]
-        print(f"  {key}: {'; '.join(parts)}; {ratio:.3f}x")
+        workload, calls, workers, concurrency, block = key
+        print(
+            f"  {workload}, {calls} calls/row, pool {workers}, concurrency {concurrency}, block {block}: "
+            f"{'; '.join(parts)}; {ratio:.3f}x"
+        )
     print(
         "CPU, RSS, invocations, rows, and byte comparisons: comparison.csv; raw measurements: results.json/results.csv."
     )
@@ -874,7 +899,26 @@ def main():
     parser.add_argument("--seed", type=int, default=1729)
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--correctness-only", action="store_true")
+    parser.add_argument(
+        "--compose",
+        action="store_true",
+        help="test the running Compose ClickHouse; no native Rust/ClickHouse required",
+    )
+    parser.add_argument(
+        "--compose-file", type=Path, default=ROOT / "local/compose.yaml"
+    )
+    parser.add_argument(
+        "--compose-project", help="Compose project name, if started with -p"
+    )
+    parser.add_argument(
+        "--compose-url", help="override the discovered published HTTP URL"
+    )
     args = parser.parse_args()
+    if args.compose:
+        from compose_regression import run_compose
+
+        run_compose(args)
+        return
     check(
         args.clickhouse,
         "clickhouse is not installed; pass --clickhouse /path/to/clickhouse",
