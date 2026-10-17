@@ -1,6 +1,9 @@
 # Rust build outputs (the packaged count_tokens.zip is committed on purpose)
 udf/count_tokens_rs/target/
 udf/count_tokens_rs/dist/
+udf/count_token_chrs/target/
+udf/count_token_chrs/dist/
+udf/count_token_chrs/count_token_chrs.zip
 
 # Never commit a real API key
 udf/judge_response/config.json
@@ -12,5 +15,6 @@ __pycache__/
 
 # Local ClickHouse test data
 local/data/
+local/results/
 
 .DS_Store

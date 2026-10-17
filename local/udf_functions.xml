@@ -7,6 +7,7 @@
 
   and populate local/user_scripts/ with:
     count_tokens_main      the Rust binary for your architecture (see udf/count_tokens_rs/build.sh)
+    count_token_chrs       the Executor-based Rust binary (see udf/count_token_chrs/build.sh)
     models.json            copied from udf/count_tokens_rs/ (the binary looks for it next to itself,
                            not in the working directory - same as in Cloud, where the bundle lives
                            under /scripts but the process starts in /)
@@ -26,6 +27,18 @@
         <send_chunk_header>true</send_chunk_header>
         <pool_size>4</pool_size>
         <command>count_tokens_main</command>
+        <deterministic>true</deterministic>
+    </function>
+    <function>
+        <type>executable_pool</type>
+        <name>count_token_chrs</name>
+        <return_type>UInt32</return_type>
+        <argument><type>String</type><name>model</name></argument>
+        <argument><type>String</type><name>text</name></argument>
+        <format>RowBinary</format>
+        <send_chunk_header>true</send_chunk_header>
+        <pool_size>4</pool_size>
+        <command>count_token_chrs</command>
         <deterministic>true</deterministic>
     </function>
     <function>

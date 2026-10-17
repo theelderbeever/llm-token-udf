@@ -1,0 +1,18 @@
+[package]
+name = "count_token_chrs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clickhouse = { git = "https://github.com/theelderbeever/clickhouse-rs", rev = "e350b48f45bea062ac1af152d54698b1b7aee568", default-features = false }
+tiktoken-rs = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
