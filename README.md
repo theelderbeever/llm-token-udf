@@ -130,6 +130,49 @@ with `amd64/main`, `arm64/main`, and their adjacent configuration. Cross-compila
 of the native regression runner. For manual OSS deployment, copy the new binary as
 `count_token_chrs` alongside the baseline binary and `models.json` in `user_scripts_path`.
 
+### ClickHouse in Docker with mounted UDF binaries
+
+`local/Dockerfile` pins ClickHouse to `26.9.8.3`. Its `binaries` target builds both Rust UDFs
+with Rust `1.98.1` on Alpine and exports static Linux musl executables. The runtime image contains
+the two Rust function definitions; Compose mounts the executables and their shared `models.json`
+as read-only files. Build and start from the repository root:
+
+```bash
+docker build -f local/Dockerfile --target binaries \
+  --output type=local,dest=local/user_scripts .
+docker compose -f local/compose.yaml up --build -d --wait
+docker compose -f local/compose.yaml exec clickhouse clickhouse-client \
+  --user benchmark --password benchmark --query \
+  "SELECT count_tokens('gpt-4o', 'hello world'), count_token_chrs('gpt-4o', 'hello world')"
+# Both results should be 2.
+```
+
+The default build uses Docker's native architecture. For another machine, add `--platform linux/amd64`
+or `--platform linux/arm64` to the binary export command and run the matching ClickHouse image
+platform (for example, with `DOCKER_DEFAULT_PLATFORM=linux/amd64`). A macOS `cargo build` executable
+cannot run inside this Linux container. Already-built matching Linux musl binaries can instead be
+copied to `local/user_scripts/count_tokens_main` and `local/user_scripts/count_token_chrs`, with
+`udf/count_tokens_rs/models.json` beside them. Preserve executable permissions.
+
+HTTP and native ports bind to host loopback at `18123` and `19000`, with the local test credentials
+`benchmark` / `benchmark`. Override them using `CLICKHOUSE_HTTP_PORT` and `CLICKHOUSE_TCP_PORT`.
+Data persists in the Compose project's `clickhouse-data` volume. After exporting replacement binaries,
+recreate the container to refresh the file mounts and worker pool:
+
+```bash
+docker compose -f local/compose.yaml up -d --force-recreate --wait
+docker compose -f local/compose.yaml down       # preserve data
+# docker compose -f local/compose.yaml down -v  # also delete this project's data
+```
+
+On Linux, `CLICKHOUSE_CPUSET=2-7 docker compose -f local/compose.yaml up -d --wait` constrains the
+server and its UDF workers to those logical CPU IDs. This sets affinity; reserving those CPUs
+exclusively still requires host-side cpuset partitioning and placing the container within that
+partition. Docker Desktop CPU IDs refer to its Linux VM, not the macOS host cores.
+
+This Compose service supports direct SQL comparisons. `local/regression.py` still launches isolated
+native ClickHouse servers and does not attach to the Compose service.
+
 One thing worth knowing if you adapt the binaries: data files in the zip are deployed next to the
 binary, but the process does not start in that directory (in Cloud the bundle is under `/scripts`
 and the working directory is `/`). Both `count_tokens` implementations resolve `models.json`

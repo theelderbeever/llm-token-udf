@@ -1,0 +1,9 @@
+.git
+**/target
+**/dist
+**/*.zip
+**/__pycache__
+local/data
+local/results
+local/user_scripts
+udf/judge_response/config.json

@@ -16,5 +16,6 @@ __pycache__/
 # Local ClickHouse test data
 local/data/
 local/results/
+local/user_scripts/
 
 .DS_Store

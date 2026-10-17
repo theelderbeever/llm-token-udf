@@ -1,0 +1,28 @@
+<functions>
+    <function>
+        <type>executable_pool</type>
+        <name>count_tokens</name>
+        <return_type>UInt32</return_type>
+        <argument><type>String</type><name>model</name></argument>
+        <argument><type>String</type><name>text</name></argument>
+        <format>RowBinary</format>
+        <send_chunk_header>true</send_chunk_header>
+        <pool_size>4</pool_size>
+        <command>count_tokens_main</command>
+        <execute_direct>true</execute_direct>
+        <deterministic>true</deterministic>
+    </function>
+    <function>
+        <type>executable_pool</type>
+        <name>count_token_chrs</name>
+        <return_type>UInt32</return_type>
+        <argument><type>String</type><name>model</name></argument>
+        <argument><type>String</type><name>text</name></argument>
+        <format>RowBinary</format>
+        <send_chunk_header>true</send_chunk_header>
+        <pool_size>4</pool_size>
+        <command>count_token_chrs</command>
+        <execute_direct>true</execute_direct>
+        <deterministic>true</deterministic>
+    </function>
+</functions>
